@@ -917,6 +917,52 @@ Use `toolTimeout` to override the default 30s per-call timeout for slow servers:
 
 MCP tools are automatically discovered and registered on startup. The LLM can use them alongside built-in tools — no extra configuration needed.
 
+</details>
+
+### Tool Call Transparency
+
+nanobot can stream lightweight tool-call hints to chat users while the agent is working (for example: `read_file("...")`, `web_search("...")`).
+
+Use these channel settings in `config.json`:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `channels.sendToolHints` | `false` | Global switch for streaming tool-call hints. |
+| `channels.toolHintChannels` | `[*]` | Channels that can receive tool hints. Use `[*]` for all channels, or a list like `["telegram"]`. |
+| `channels.sendProgress` | `true` | Streams non-tool progress text (reasoning/progress messages). |
+
+Telegram-only tool transparency:
+
+```json
+{
+  "channels": {
+    "sendToolHints": true,
+    "toolHintChannels": ["telegram"]
+  }
+}
+```
+
+All-channel tool transparency:
+
+```json
+{
+  "channels": {
+    "sendToolHints": true,
+    "toolHintChannels": ["*"]
+  }
+}
+```
+
+Turn tool hints off at any time:
+
+```json
+{
+  "channels": {
+    "sendToolHints": false
+  }
+}
+```
+
 
 
 

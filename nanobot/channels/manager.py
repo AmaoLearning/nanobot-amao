@@ -216,11 +216,8 @@ class ChannelManager:
                     timeout=1.0
                 )
 
-                if msg.metadata.get("_progress"):
-                    if msg.metadata.get("_tool_hint") and not self.config.channels.send_tool_hints:
-                        continue
-                    if not msg.metadata.get("_tool_hint") and not self.config.channels.send_progress:
-                        continue
+                if not self._should_deliver_outbound(msg):
+                    continue
 
                 channel = self.channels.get(msg.channel)
                 if channel:
@@ -235,6 +232,21 @@ class ChannelManager:
                 continue
             except asyncio.CancelledError:
                 break
+
+    def _should_deliver_outbound(self, msg: OutboundMessage) -> bool:
+        """Check whether an outbound message should be delivered to the channel."""
+        if not msg.metadata.get("_progress"):
+            return True
+
+        is_tool_hint = bool(msg.metadata.get("_tool_hint"))
+        if not is_tool_hint:
+            return self.config.channels.send_progress
+
+        if not self.config.channels.send_tool_hints:
+            return False
+
+        allowed_channels = self.config.channels.tool_hint_channels
+        return "*" in allowed_channels or msg.channel in allowed_channels
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """Get a channel by name."""
