@@ -235,9 +235,32 @@ class AgentDefaults(Base):
 
 
 class AgentsConfig(Base):
-    """Agent configuration."""
+    """Agent configuration with support for named profiles.
+
+    Extra keys beyond ``defaults`` are treated as named agent profiles.
+    Example config.json::
+
+        "agents": {
+            "defaults": { "model": "anthropic/claude-opus-4-5" },
+            "coder":    { "model": "deepseek/deepseek-coder", "temperature": 0.2 },
+            "vision":   { "model": "openai/gpt-4o", "maxTokens": 16384 }
+        }
+    """
+
+    model_config = ConfigDict(extra="allow")  # accept extra keys as named agent profiles
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+
+    def get_profile_names(self) -> list[str]:
+        """Return names of all defined agent profiles."""
+        return list((self.model_extra or {}).keys())
+
+    def get_profile_overrides(self, name: str) -> dict | None:
+        """Return raw override dict for a named profile, or *None* if not defined."""
+        raw = (self.model_extra or {}).get(name)
+        if isinstance(raw, dict):
+            return raw
+        return None
 
 
 class ProviderConfig(Base):
@@ -343,6 +366,25 @@ class Config(BaseSettings):
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
         return Path(self.agents.defaults.workspace).expanduser()
+
+    def resolve_agent(self, agent_name: str | None = None) -> AgentDefaults:
+        """Return merged agent defaults for *agent_name*.
+
+        If *agent_name* is ``None`` or not found, returns ``defaults`` as-is.
+        Otherwise the named profile's overrides are applied on top of defaults.
+        """
+        if not agent_name:
+            return self.agents.defaults
+        overrides = self.agents.get_profile_overrides(agent_name)
+        if overrides is None:
+            available = self.agents.get_profile_names()
+            raise ValueError(
+                f"Agent profile '{agent_name}' not found. "
+                f"Available profiles: {available or '(none)'}"
+            )
+        merged = self.agents.defaults.model_dump()
+        merged.update(overrides)
+        return AgentDefaults.model_validate(merged)
 
     def _match_provider(
         self, model: str | None = None

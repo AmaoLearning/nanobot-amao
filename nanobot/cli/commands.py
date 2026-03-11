@@ -264,8 +264,12 @@ def _make_provider(config: Config):
     )
 
 
-def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
-    """Load config and optionally override the active workspace."""
+def _load_runtime_config(
+    config: str | None = None,
+    workspace: str | None = None,
+    agent_name: str | None = None,
+) -> Config:
+    """Load config and optionally override the active workspace / agent profile."""
     from nanobot.config.loader import load_config, set_config_path
 
     config_path = None
@@ -278,6 +282,17 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
         console.print(f"[dim]Using config: {config_path}[/dim]")
 
     loaded = load_config(config_path)
+
+    # Resolve named agent profile (merges with defaults)
+    if agent_name:
+        try:
+            resolved = loaded.resolve_agent(agent_name)
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            raise typer.Exit(1)
+        loaded.agents.defaults = resolved
+        console.print(f"[dim]Using agent profile: {agent_name}[/dim]")
+
     if workspace:
         loaded.agents.defaults.workspace = workspace
     return loaded
@@ -294,6 +309,7 @@ def gateway(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    agent_name: str | None = typer.Option(None, "--agent", "-a", help="Named agent profile from config (e.g. coder, vision)"),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -309,7 +325,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    config = _load_runtime_config(config, workspace)
+    config = _load_runtime_config(config, workspace, agent_name)
 
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
@@ -481,6 +497,7 @@ def agent(
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+    agent_name: str | None = typer.Option(None, "--agent", "-a", help="Named agent profile from config (e.g. coder, vision)"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
 ):
@@ -492,7 +509,7 @@ def agent(
     from nanobot.config.paths import get_cron_dir
     from nanobot.cron.service import CronService
 
-    config = _load_runtime_config(config, workspace)
+    config = _load_runtime_config(config, workspace, agent_name)
     sync_workspace_templates(config.workspace_path)
 
     bus = MessageBus()
