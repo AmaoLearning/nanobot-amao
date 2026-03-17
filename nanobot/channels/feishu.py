@@ -242,7 +242,8 @@ class FeishuConfig(Base):
     verification_token: str = ""
     allow_from: list[str] = Field(default_factory=list)
     react_emoji: str = "THUMBSUP"
-    group_policy: Literal["open", "mention"] = "mention"
+    group_policy: Literal["open", "mention", "allowlist"] = "mention"
+    group_allow_from: list[str] = Field(default_factory=list)  # Allowed chat_ids if allowlist
     reply_to_message: bool = False  # If True, bot replies quote the user's original message
 
 

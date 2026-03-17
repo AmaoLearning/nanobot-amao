@@ -566,11 +566,13 @@ def gateway(
             )
             if should_notify:
                 from nanobot.bus.events import OutboundMessage
-                await bus.publish_outbound(OutboundMessage(
-                    channel=job.payload.channel or "cli",
-                    chat_id=job.payload.to,
-                    content=response,
-                ))
+                deliver_targets = targets if targets else [job.payload.to] if isinstance(job.payload.to, str) else []
+                for target in deliver_targets:
+                    await bus.publish_outbound(OutboundMessage(
+                        channel=job.payload.channel or "cli",
+                        chat_id=target,
+                        content=response,
+                    ))
         return response
     cron.on_job = on_cron_job
 

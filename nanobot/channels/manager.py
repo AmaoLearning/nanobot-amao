@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
+
+if TYPE_CHECKING:
+    from nanobot.bus.events import OutboundMessage
 
 
 class ChannelManager:
