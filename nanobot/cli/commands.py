@@ -374,12 +374,17 @@ def gateway(
         cron_token = None
         if isinstance(cron_tool, CronTool):
             cron_token = cron_tool.set_cron_context(True)
+        targets = job.payload.to
+        if isinstance(targets, str):
+            targets = [targets]
+        first_target = (targets or [None])[0] or "direct"
+
         try:
             response = await agent.process_direct(
                 reminder_note,
                 session_key=f"cron:{job.id}",
                 channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
+                chat_id=first_target,
             )
         finally:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
@@ -389,13 +394,15 @@ def gateway(
         if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
             return response
 
-        if job.payload.deliver and job.payload.to and response:
+        if job.payload.deliver and targets and response:
             from nanobot.bus.events import OutboundMessage
-            await bus.publish_outbound(OutboundMessage(
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to,
-                content=response
-            ))
+            ch = job.payload.channel or "cli"
+            for target in targets:
+                await bus.publish_outbound(OutboundMessage(
+                    channel=ch,
+                    chat_id=target,
+                    content=response,
+                ))
         return response
     cron.on_job = on_cron_job
 

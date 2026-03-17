@@ -26,7 +26,7 @@ class CronPayload:
     # Deliver response to channel
     deliver: bool = False
     channel: str | None = None  # e.g. "whatsapp"
-    to: str | None = None  # e.g. phone number
+    to: str | list[str] | None = None  # e.g. phone number, or list of chat_ids
 
 
 @dataclass

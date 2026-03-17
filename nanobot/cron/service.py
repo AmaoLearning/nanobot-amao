@@ -17,6 +17,17 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _normalize_to(raw: Any) -> str | list[str] | None:
+    """Normalize the 'to' field from JSON: accept str, list[str], or None."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        return [str(x) for x in raw] if raw else None
+    return str(raw)
+
+
 def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     """Compute next run time in ms."""
     if schedule.kind == "at":
@@ -106,7 +117,7 @@ class CronService:
                             message=j["payload"].get("message", ""),
                             deliver=j["payload"].get("deliver", False),
                             channel=j["payload"].get("channel"),
-                            to=j["payload"].get("to"),
+                            to=_normalize_to(j["payload"].get("to")),
                         ),
                         state=CronJobState(
                             next_run_at_ms=j.get("state", {}).get("nextRunAtMs"),

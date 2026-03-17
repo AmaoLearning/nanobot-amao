@@ -9,7 +9,7 @@ def _manager() -> ChannelManager:
     # Keep all concrete channels disabled for isolated unit tests.
     cfg.channels.send_progress = True
     cfg.channels.send_tool_hints = False
-    cfg.channels.tool_hint_channels = ["feishu"]
+    cfg.channels.tool_hint_channels = {"feishu": ["*"]}
     return ChannelManager(cfg, MessageBus())
 
 
@@ -49,7 +49,7 @@ def test_tool_hint_enabled_feishu_only() -> None:
 def test_tool_hint_enabled_all_channels_with_wildcard() -> None:
     mgr = _manager()
     mgr.config.channels.send_tool_hints = True
-    mgr.config.channels.tool_hint_channels = ["*"]
+    mgr.config.channels.tool_hint_channels = {"*": ["*"]}
 
     msg = OutboundMessage(
         channel="telegram",
@@ -81,3 +81,23 @@ def test_non_progress_message_always_delivered() -> None:
     msg = OutboundMessage(channel="feishu", chat_id="c1", content="final answer")
 
     assert mgr._should_deliver_outbound(msg) is True
+
+
+def test_tool_hint_per_chat_id() -> None:
+    mgr = _manager()
+    mgr.config.channels.send_tool_hints = True
+    mgr.config.channels.tool_hint_channels = {"feishu": ["group_123", "user_456"]}
+
+    allowed = OutboundMessage(
+        channel="feishu", chat_id="group_123",
+        content='read_file("a.txt")',
+        metadata={"_progress": True, "_tool_hint": True},
+    )
+    denied = OutboundMessage(
+        channel="feishu", chat_id="other_789",
+        content='read_file("a.txt")',
+        metadata={"_progress": True, "_tool_hint": True},
+    )
+
+    assert mgr._should_deliver_outbound(allowed) is True
+    assert mgr._should_deliver_outbound(denied) is False

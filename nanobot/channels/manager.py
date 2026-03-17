@@ -245,8 +245,12 @@ class ChannelManager:
         if not self.config.channels.send_tool_hints:
             return False
 
-        allowed_channels = self.config.channels.tool_hint_channels
-        return "*" in allowed_channels or msg.channel in allowed_channels
+        hint_map = self.config.channels.tool_hint_channels
+        # Wildcard key "*" matches all channels
+        targets = hint_map.get(msg.channel) or hint_map.get("*")
+        if targets is None:
+            return False
+        return "*" in targets or msg.chat_id in targets
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """Get a channel by name."""
