@@ -398,11 +398,20 @@ class FeishuChannel(BaseChannel):
         await loop.run_in_executor(None, self._add_reaction_sync, message_id, emoji_type)
 
     def _get_bot_info_sync(self) -> str | None:
-        """Retrieve bot's open_id via Feishu API (synchronous)."""
+        """Retrieve bot's open_id via Feishu bot/v3/info API (synchronous)."""
+        import lark_oapi as lark
         try:
-            response = self._client.bot.v3.bot_info.get()
-            if response.success() and response.data and response.data.bot:
-                open_id = getattr(response.data.bot, "open_id", None)
+            request = (
+                lark.BaseRequest.builder()
+                .http_method(lark.HttpMethod.GET)
+                .uri("/open-apis/bot/v3/info")
+                .token_types({lark.AccessTokenType.TENANT})
+                .build()
+            )
+            response = self._client.request(request)
+            if response.success() and response.raw and response.raw.content:
+                data = json.loads(response.raw.content)
+                open_id = (data.get("bot") or {}).get("open_id")
                 if open_id:
                     return open_id
             logger.warning(
