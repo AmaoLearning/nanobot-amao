@@ -1042,17 +1042,37 @@ class FeishuChannel(BaseChannel):
 
             # Forward to message bus
             reply_to = chat_id if chat_type == "group" else sender_id
-            await self._handle_message(
-                sender_id=sender_id,
-                chat_id=reply_to,
-                content=content,
-                media=media_paths,
-                metadata={
-                    "message_id": message_id,
-                    "chat_type": chat_type,
-                    "msg_type": msg_type,
-                }
-            )
+
+            if chat_type == "group":
+                # Group messages already passed _should_respond_in_group;
+                # publish directly to bypass sender-level allow_from check
+                # so that any user in an authorized group can interact.
+                from nanobot.bus.events import InboundMessage as _IB
+                msg = _IB(
+                    channel=self.name,
+                    sender_id=str(sender_id),
+                    chat_id=str(reply_to),
+                    content=content,
+                    media=media_paths,
+                    metadata={
+                        "message_id": message_id,
+                        "chat_type": chat_type,
+                        "msg_type": msg_type,
+                    },
+                )
+                await self.bus.publish_inbound(msg)
+            else:
+                await self._handle_message(
+                    sender_id=sender_id,
+                    chat_id=reply_to,
+                    content=content,
+                    media=media_paths,
+                    metadata={
+                        "message_id": message_id,
+                        "chat_type": chat_type,
+                        "msg_type": msg_type,
+                    }
+                )
 
         except Exception as e:
             logger.error("Error processing Feishu message: {}", e)
