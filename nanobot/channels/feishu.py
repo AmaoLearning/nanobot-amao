@@ -254,6 +254,7 @@ class FeishuChannel(BaseChannel):
         self._ws_thread: threading.Thread | None = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._bot_open_id: str | None = None
 
     @staticmethod
     def _register_optional_event(builder: Any, method_name: str, handler: Any) -> Any:
@@ -281,6 +282,17 @@ class FeishuChannel(BaseChannel):
             .app_secret(self.config.app_secret) \
             .log_level(lark.LogLevel.INFO) \
             .build()
+
+        # Resolve bot open_id for group mention detection
+        bot_open_id = await asyncio.get_running_loop().run_in_executor(
+            None, self._get_bot_info_sync
+        )
+        if bot_open_id:
+            self._bot_open_id = bot_open_id
+            logger.info("Feishu bot open_id: {}", self._bot_open_id)
+        else:
+            logger.warning("Could not resolve Feishu bot open_id; mention-based group_policy may not work")
+
         builder = lark.EventDispatcherHandler.builder(
             self.config.encrypt_key or "",
             self.config.verification_token or "",
@@ -384,6 +396,63 @@ class FeishuChannel(BaseChannel):
 
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._add_reaction_sync, message_id, emoji_type)
+
+    def _get_bot_info_sync(self) -> str | None:
+        """Retrieve bot's open_id via Feishu API (synchronous)."""
+        try:
+            response = self._client.bot.v3.bot_info.get()
+            if response.success() and response.data and response.data.bot:
+                open_id = getattr(response.data.bot, "open_id", None)
+                if open_id:
+                    return open_id
+            logger.warning(
+                "Failed to get Feishu bot info: code={}, msg={}",
+                getattr(response, "code", "?"), getattr(response, "msg", "?"),
+            )
+        except Exception as e:
+            logger.warning("Error retrieving Feishu bot info: {}", e)
+        return None
+
+    def _is_bot_mentioned(self, message: Any) -> bool:
+        """Check if bot was mentioned in the Feishu message."""
+        if not self._bot_open_id:
+            return False
+        mentions = getattr(message, "mentions", None)
+        if not mentions:
+            return False
+        for mention in mentions:
+            mention_id = getattr(mention, "id", None)
+            if mention_id and getattr(mention_id, "open_id", None) == self._bot_open_id:
+                return True
+        return False
+
+    def _should_respond_in_group(self, message: Any, chat_id: str) -> bool:
+        """Check if bot should respond in a group chat based on group_policy."""
+        if self.config.group_policy == "open":
+            return True
+        if self.config.group_policy == "mention":
+            if self._is_bot_mentioned(message):
+                return True
+            logger.debug("Feishu group message in {} ignored (bot not mentioned)", chat_id)
+            return False
+        if self.config.group_policy == "allowlist":
+            return chat_id in self.config.group_allow_from
+        return True
+
+    def _strip_bot_mention(self, text: str, message: Any) -> str:
+        """Strip bot @mention placeholder from message text."""
+        if not text or not self._bot_open_id:
+            return text
+        mentions = getattr(message, "mentions", None)
+        if not mentions:
+            return text
+        for mention in mentions:
+            mention_id = getattr(mention, "id", None)
+            if mention_id and getattr(mention_id, "open_id", None) == self._bot_open_id:
+                key = getattr(mention, "key", None)
+                if key:
+                    text = text.replace(key, "").strip()
+        return text
 
     # Regex to match markdown tables (header + separator + data rows)
     _TABLE_RE = re.compile(
@@ -892,7 +961,11 @@ class FeishuChannel(BaseChannel):
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            # Add reaction
+            # Group policy check — DMs (p2p) always pass if is_allowed
+            if chat_type == "group" and not self._should_respond_in_group(message, chat_id):
+                return
+
+            # Add reaction (only for messages we will process)
             await self._add_reaction(message_id, self.config.react_emoji)
 
             # Parse content
@@ -950,6 +1023,10 @@ class FeishuChannel(BaseChannel):
                 content_parts.append(MSG_TYPE_MAP.get(msg_type, f"[{msg_type}]"))
 
             content = "\n".join(content_parts) if content_parts else ""
+
+            # Strip bot @mention placeholder so it doesn't appear in the prompt
+            if chat_type == "group":
+                content = self._strip_bot_mention(content, message)
 
             if not content and not media_paths:
                 return
