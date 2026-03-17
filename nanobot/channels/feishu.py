@@ -1205,22 +1205,26 @@ class FeishuChannel(BaseChannel):
                         "message_id": message_id,
                         "chat_type": chat_type,
                         "msg_type": msg_type,
+                        "parent_id": parent_id,
+                        "root_id": root_id,
                     },
                 )
                 await self.bus.publish_inbound(msg)
-            await self._handle_message(
-                sender_id=sender_id,
-                chat_id=reply_to,
-                content=content,
-                media=media_paths,
-                metadata={
-                    "message_id": message_id,
-                    "chat_type": chat_type,
-                    "msg_type": msg_type,
-                    "parent_id": parent_id,
-                    "root_id": root_id,
-                }
-            )
+            else:
+                # Private messages: check allow_from policy
+                await self._handle_message(
+                    sender_id=sender_id,
+                    chat_id=reply_to,
+                    content=content,
+                    media=media_paths,
+                    metadata={
+                        "message_id": message_id,
+                        "chat_type": chat_type,
+                        "msg_type": msg_type,
+                        "parent_id": parent_id,
+                        "root_id": root_id,
+                    }
+                )
 
         except Exception as e:
             logger.error("Error processing Feishu message: {}", e)
