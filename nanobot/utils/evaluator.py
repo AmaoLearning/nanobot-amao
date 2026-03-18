@@ -49,6 +49,11 @@ _SYSTEM_PROMPT = (
     "new, a confirmation that everything is normal, or essentially empty."
 )
 
+_EMPTY_COMPLETION_RESPONSES = {
+    "",
+    "I've completed processing but have no response to give.",
+}
+
 
 async def evaluate_response(
     response: str,
@@ -62,6 +67,10 @@ async def evaluate_response(
     ``_decide()``).  Falls back to ``True`` (notify) on any failure so
     that important messages are never silently dropped.
     """
+    if response.strip() in _EMPTY_COMPLETION_RESPONSES:
+        logger.info("evaluate_response: suppressing empty completion response")
+        return False
+
     try:
         llm_response = await provider.chat_with_retry(
             messages=[

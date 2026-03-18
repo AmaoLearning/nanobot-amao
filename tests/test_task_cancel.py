@@ -125,6 +125,26 @@ class TestDispatch:
         await asyncio.gather(t1, t2)
         assert order == ["start-a", "end-a", "start-b", "end-b"]
 
+    @pytest.mark.asyncio
+    async def test_process_direct_uses_same_lock(self):
+        loop, _bus = _make_loop()
+        order = []
+
+        async def mock_process(m, **kwargs):
+            order.append(f"start-{m.content}")
+            await asyncio.sleep(0.05)
+            order.append(f"end-{m.content}")
+            return None
+
+        loop._process_message = mock_process
+
+        t1 = asyncio.create_task(loop.process_direct("a", session_key="s:a"))
+        t2 = asyncio.create_task(loop.process_direct("b", session_key="s:b"))
+
+        await asyncio.gather(t1, t2)
+
+        assert order == ["start-a", "end-a", "start-b", "end-b"]
+
 
 class TestSubagentCancellation:
     @pytest.mark.asyncio

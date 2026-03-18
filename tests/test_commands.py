@@ -302,6 +302,88 @@ def mock_agent_runtime(tmp_path):
         }
 
 
+@pytest.mark.asyncio
+async def test_agent_cron_fans_out_message_tool_to_all_targets(monkeypatch, tmp_path: Path) -> None:
+    from nanobot.agent.tools.cron import CronTool
+    from nanobot.agent.tools.message import MessageTool
+    from nanobot.bus.events import OutboundMessage
+
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+
+    sent: list[OutboundMessage] = []
+    created: dict[str, object] = {}
+
+    class _FakeBus:
+        async def publish_outbound(self, msg: OutboundMessage) -> None:
+            sent.append(msg)
+
+    class _FakeCronService:
+        def __init__(self, _store_path: Path) -> None:
+            self.on_job = None
+            created["cron"] = self
+
+    class _ToolRegistry:
+        def __init__(self, cron_service: _FakeCronService, message_tool: MessageTool, cron_tool: CronTool) -> None:
+            self._items = {
+                "message": message_tool,
+                "cron": cron_tool,
+            }
+
+        def get(self, name: str):
+            return self._items.get(name)
+
+    class _FakeAgentLoop:
+        def __init__(self, *args, **kwargs) -> None:
+            bus = kwargs["bus"]
+            cron_service = kwargs["cron_service"]
+            self.model = "test-model"
+            self.channels_config = None
+            self._message_tool = MessageTool(send_callback=bus.publish_outbound)
+            self._cron_tool = CronTool(cron_service)
+            self.tools = _ToolRegistry(cron_service, self._message_tool, self._cron_tool)
+            created["agent"] = self
+
+        async def process_direct(self, _content: str, session_key: str, channel: str, chat_id: str, on_progress=None) -> str:
+            del session_key, on_progress
+            self._message_tool.set_context(channel, chat_id)
+            self._message_tool.start_turn()
+            await self._message_tool.execute("scheduled result")
+            return ""
+
+        async def close_mcp(self) -> None:
+            return None
+
+    monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda _config: object())
+    monkeypatch.setattr("nanobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("nanobot.config.paths.get_cron_dir", lambda: tmp_path / "cron")
+    monkeypatch.setattr("nanobot.bus.queue.MessageBus", _FakeBus)
+    monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCronService)
+    monkeypatch.setattr("nanobot.agent.loop.AgentLoop", _FakeAgentLoop)
+
+    result = runner.invoke(app, ["agent", "-m", "hello"])
+
+    assert result.exit_code == 0
+
+    cron = created["cron"]
+    assert getattr(cron, "on_job") is not None
+
+    job = MagicMock()
+    job.id = "job1"
+    job.name = "demo"
+    job.payload.message = "run demo"
+    job.payload.channel = "feishu"
+    job.payload.to = ["user-a", "user-b", "user-c"]
+    job.payload.deliver = True
+
+    await cron.on_job(job)
+
+    assert [msg.chat_id for msg in sent] == ["user-a", "user-b", "user-c"]
+    assert all(msg.content == "scheduled result" for msg in sent)
+
+
 def test_agent_help_shows_workspace_and_config_options():
     result = runner.invoke(app, ["agent", "--help"])
 

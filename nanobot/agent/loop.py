@@ -501,5 +501,6 @@ class AgentLoop:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+        async with self._processing_lock:
+            response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""

@@ -528,6 +528,7 @@ def gateway(
         """Execute a cron job through the agent."""
         from nanobot.agent.tools.cron import CronTool
         from nanobot.agent.tools.message import MessageTool
+        from nanobot.bus.events import OutboundMessage
         from nanobot.utils.evaluator import evaluate_response
 
         reminder_note = (
@@ -543,6 +544,7 @@ def gateway(
         targets = job.payload.to
         if isinstance(targets, str):
             targets = [targets]
+        targets = [target for target in (targets or []) if target]
         first_target = (targets or [None])[0] or "direct"
 
         try:
@@ -558,16 +560,28 @@ def gateway(
 
         message_tool = agent.tools.get("message")
         if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
-            return response
+            if job.payload.deliver and len(targets) > 1:
+                sent_messages = message_tool.sent_messages_in_turn
+                for target in targets[1:]:
+                    for sent in sent_messages:
+                        if sent.channel != (job.payload.channel or "cli") or sent.chat_id != first_target:
+                            continue
+                        await bus.publish_outbound(OutboundMessage(
+                            channel=sent.channel,
+                            chat_id=target,
+                            content=sent.content,
+                            reply_to=sent.reply_to,
+                            media=list(sent.media),
+                            metadata=dict(sent.metadata),
+                        ))
+            return "Message sent via message tool."
 
-        if job.payload.deliver and job.payload.to and response:
+        if job.payload.deliver and targets and response and response.strip() != "I've completed processing but have no response to give.":
             should_notify = await evaluate_response(
                 response, job.payload.message, provider, agent.model,
             )
             if should_notify:
-                from nanobot.bus.events import OutboundMessage
-                deliver_targets = targets if targets else [job.payload.to] if isinstance(job.payload.to, str) else []
-                for target in deliver_targets:
+                for target in targets:
                     await bus.publish_outbound(OutboundMessage(
                         channel=job.payload.channel or "cli",
                         chat_id=target,

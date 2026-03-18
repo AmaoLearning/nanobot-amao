@@ -61,3 +61,10 @@ async def test_no_tool_call_fallback() -> None:
     provider = DummyProvider([LLMResponse(content="I think you should notify", tool_calls=[])])
     result = await evaluate_response("some response", "some task", provider, "m")
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_empty_completion_response_is_suppressed() -> None:
+    provider = DummyProvider([])
+    result = await evaluate_response("I've completed processing but have no response to give.", "some task", provider, "m")
+    assert result is False

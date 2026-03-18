@@ -128,5 +128,23 @@ class TestMessageToolTurnTracking:
     def test_start_turn_resets(self) -> None:
         tool = MessageTool()
         tool._sent_in_turn = True
+        tool._sent_messages_in_turn = [OutboundMessage(channel="feishu", chat_id="chat1", content="hello")]
         tool.start_turn()
         assert not tool._sent_in_turn
+        assert tool.sent_messages_in_turn == []
+
+    @pytest.mark.asyncio
+    async def test_execute_records_sent_message(self) -> None:
+        sent: list[OutboundMessage] = []
+
+        async def send_callback(message: OutboundMessage) -> None:
+            sent.append(message)
+
+        tool = MessageTool(send_callback=send_callback, default_channel="feishu", default_chat_id="chat1")
+
+        result = await tool.execute("hello")
+
+        assert result == "Message sent to feishu:chat1"
+        assert sent == [OutboundMessage(channel="feishu", chat_id="chat1", content="hello", media=[], metadata={"message_id": None})]
+        assert tool._sent_in_turn is True
+        assert tool.sent_messages_in_turn == sent
