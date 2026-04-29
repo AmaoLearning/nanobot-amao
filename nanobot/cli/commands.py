@@ -566,6 +566,16 @@ def gateway(
             f"Scheduled instruction: {job.payload.message}"
         )
 
+        # Normalize `to` to a flat list of strings so chat_id is always a str
+        raw_to = job.payload.to
+        if isinstance(raw_to, str):
+            targets: list[str] = [raw_to] if raw_to else []
+        elif isinstance(raw_to, list):
+            targets = [t for t in raw_to if t and isinstance(t, str)]
+        else:
+            targets = []
+        first_target = targets[0] if targets else "direct"
+
         cron_tool = agent.tools.get("cron")
         cron_token = None
         if isinstance(cron_tool, CronTool):
@@ -575,7 +585,7 @@ def gateway(
                 reminder_note,
                 session_key=f"cron:{job.id}",
                 channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
+                chat_id=first_target,
             )
         finally:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
@@ -587,15 +597,16 @@ def gateway(
         if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
             return response
 
-        if job.payload.deliver and job.payload.to and response:
+        if job.payload.deliver and targets and response:
             should_notify = await evaluate_response(response, job.payload.message, provider, agent.model,)
             if should_notify:
                 from nanobot.bus.events import OutboundMessage
-                await bus.publish_outbound(OutboundMessage(
-                    channel=job.payload.channel or "cli",
-                    chat_id=job.payload.to,
-                    content=response,
-                ))
+                for target in targets:
+                    await bus.publish_outbound(OutboundMessage(
+                        channel=job.payload.channel or "cli",
+                        chat_id=target,
+                        content=response,
+                    ))
         return response
     cron.on_job = on_cron_job
 
